@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  TITLE: Minecraft Drive Backup
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tags
+        id: tags
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          img="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          echo "list=$img:$ver,$img:latest" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: ${{ steps.tags.outputs.list }}
+
+  release:
+    needs: image
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Release notes
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v v="$ver" '/^## / {p = ($2 == v); next} p' CHANGELOG.md > notes.md
+          test -s notes.md || echo "Release $GITHUB_REF_NAME" > notes.md
+          img="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          printf '\nImage: `%s:%s`\n' "$img" "$ver" >> notes.md
+      - name: Source archive
+        run: git archive --format=zip --prefix=minecraft-drive-backup/ -o minecraft-drive-backup-src.zip HEAD
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ env.TITLE }} ${{ github.ref_name }}
+          body_path: notes.md
+          files: minecraft-drive-backup-src.zip

@@ -1,0 +1,7 @@
+.env
+rclone.conf
+secrets/
+source/
+__pycache__/
+.pytest_cache/
+*.pyc

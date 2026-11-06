@@ -1,0 +1,8 @@
+.env
+rclone.conf
+.git
+.github
+secrets
+source
+tests
+assets
